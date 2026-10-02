@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full w-full overflow-hidden select-none">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Symmetrischer Zähler & Text-Display mit Supabase</title>
+
+    <link rel="apple-touch-icon" sizes="749x749" href="icon.png">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Supabase JS Client v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* Verhindert jegliches Scrollen, Zoomen und Elastizitätseffekte (iOS Bounce) */
+        html, body {
+            touch-action: manipulation;
+            overscroll-behavior: none;
+            overflow: hidden;
+            height: 100%;
+            height: 100dvh;
+            width: 100%;
+            position: fixed;
+            top: 0;
+            left: 0;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .number-transition {
+            transition: transform 0.15s ease-out, color 0.15s ease-out;
+        }
+        
+        .pop-animation {
+            transform: scale(1.1);
+        }
+
+        /* Custom Scrollbar für Modals */
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scroll::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+        }
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: rgba(71, 85, 105, 0.8);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center p-4 h-full w-full overflow-hidden">
+
+    <!-- Hauptkarte / Interface -->
+    <main class="relative bg-slate-900/90 backdrop-blur-xl border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl max-w-sm sm:max-w-md w-full flex flex-col items-center justify-between space-y-4 z-10">
+        
+        <!-- Top Bar: Status & Einstellungen -->
+        <div class="w-full flex items-center justify-between text-xs font-medium border-b border-slate-800 pb-3">
+            <div id="status-indicator" class="flex items-center space-x-2 text-slate-400">
+                <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                <span id="status-text">Supabase einrichten...</span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button id="btn-guide" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-95" title="Netlify & Supabase Anleitung">
+                    <i class="fa-solid fa-book-open"></i>
+                </button>
+                <button id="btn-settings" class="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-95" title="Supabase Einstellungen">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Modus-Umschalter (Zähler vs. Text) -->
+        <div class="w-full bg-slate-950 p-1 rounded-xl border border-slate-800 grid grid-cols-2 gap-1 text-xs font-semibold">
+            <button id="tab-counter" class="py-1.5 rounded-lg transition-all bg-slate-800 text-white flex items-center justify-center space-x-1.5">
+                <i class="fa-solid fa-hashtag"></i>
+                <span>Zähler</span>
+            </button>
+            <button id="tab-text" class="py-1.5 rounded-lg transition-all text-slate-400 hover:text-white flex items-center justify-center space-x-1.5">
+                <i class="fa-solid fa-font"></i>
+                <span>Text</span>
+            </button>
+        </div>
+
+        <!-- Header / Anzeige (Zahl oder Text) -->
+        <header class="text-center w-full my-auto space-y-1 min-h-[140px] flex flex-col justify-center items-center">
+            <div id="meta-header" class="flex items-center justify-center space-x-2">
+                <p id="display-label" class="text-xs uppercase tracking-widest text-slate-400 font-bold">Aktueller Wert</p>
+                <span id="badge-mode" class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-slate-800 text-slate-400 border border-slate-700">Realtime</span>
+            </div>
+
+            <!-- Zähler Anzeige -->
+            <div id="counter-display" class="number-transition text-7xl sm:text-8xl font-black text-white tracking-tight py-2 select-none">
+                0
+            </div>
+
+            <!-- Text Anzeige (Standardmäßig verborgen) -->
+            <div id="text-display" class="number-transition text-xl sm:text-2xl font-extrabold text-amber-400 tracking-wide py-4 select-none break-words max-w-xs text-center hidden">
+                Hallo Welt!
+            </div>
+
+            <p id="sync-subtext" class="text-[11px] text-slate-500 h-4 flex items-center justify-center space-x-1">
+                <span>Bereit</span>
+            </p>
+        </header>
+
+        <!-- Symmetrische Zähler-Buttons -->
+        <div id="counter-controls" class="grid grid-cols-2 gap-4 w-full">
+            <button 
+                id="btn-minus" 
+                class="group relative flex items-center justify-center py-5 px-6 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 active:scale-95 text-white font-black text-2xl shadow-lg shadow-blue-600/30 hover:shadow-blue-500/50 transition-all duration-150 focus:outline-none touch-manipulation"
+                aria-label="Wert um eins verringern"
+            >
+                <span class="flex items-center space-x-2">
+                    <i class="fa-solid fa-minus text-lg"></i>
+                    <span>1</span>
+                </span>
+            </button>
+
+            <button 
+                id="btn-plus" 
+                class="group relative flex items-center justify-center py-5 px-6 rounded-2xl bg-red-600 hover:bg-red-500 active:bg-red-700 active:scale-95 text-white font-black text-2xl shadow-lg shadow-red-600/30 hover:shadow-red-500/50 transition-all duration-150 focus:outline-none touch-manipulation"
+                aria-label="Wert um eins erhöhen"
+            >
+                <span class="flex items-center space-x-2">
+                    <i class="fa-solid fa-plus text-lg"></i>
+                    <span>1</span>
+                </span>
+            </button>
+        </div>
+
+        <!-- Text Eingabe-Controls (Standardmäßig verborgen) -->
+        <div id="text-controls" class="w-full space-y-2 hidden">
+            <div class="relative flex items-center">
+                <input 
+                    type="text" 
+                    id="input-text-val" 
+                    maxlength="100" 
+                    placeholder="Max. 100 Zeichen..." 
+                    class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-4 pr-16 py-3 text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
+                >
+                <span id="char-counter" class="absolute right-3 text-[10px] text-slate-500 font-mono">0/100</span>
+            </div>
+            <button 
+                id="btn-submit-text" 
+                class="w-full bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-amber-600/20 text-xs flex items-center justify-center space-x-2"
+            >
+                <i class="fa-solid fa-paper-plane"></i>
+                <span>Text auf Server aktualisieren</span>
+            </button>
+        </div>
+
+        <!-- Bottom Controls: Reset & Pull -->
+        <div class="pt-2 w-full flex items-center justify-between border-t border-slate-800/60">
+            <button 
+                id="btn-reset" 
+                class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-150 flex items-center space-x-1.5 focus:outline-none py-1"
+            >
+                <i class="fa-solid fa-rotate-left text-[10px]"></i>
+                <span id="reset-label">Auf 0 zurücksetzen</span>
+            </button>
+            <button 
+                id="btn-refresh" 
+                class="text-xs text-slate-500 hover:text-slate-300 transition-colors duration-150 flex items-center space-x-1 focus:outline-none py-1"
+                title="Wert von Supabase neu laden"
+            >
+                <i class="fa-solid fa-arrows-rotate text-[10px]"></i>
+                <span>Jetzt vom Server laden</span>
+            </button>
+        </div>
+    </main>
+
+    <!-- Supabase Konfiguration Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto custom-scroll">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <i class="fa-solid fa-sliders text-emerald-500"></i>
+                    <span>Einstellungen</span>
+                </h2>
+                <button id="close-settings" class="text-slate-400 hover:text-white p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <!-- Benutzername Option -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Benutzername (Präfix)</label>
+                    <input 
+                        type="text" 
+                        id="input-user-name" 
+                        placeholder="z.B. Alex" 
+                        class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    >
+                    <p class="text-[10px] text-slate-500 mt-1">Wird vor jeden hochgeladenen Text gehängt.</p>
+                </div>
+
+                <!-- Minimalistische Ansicht Option -->
+                <div class="flex items-center justify-between p-3 bg-slate-950 rounded-xl border border-slate-800">
+                    <div>
+                        <label for="toggle-minimal" class="text-xs font-semibold text-slate-200 block">Minimalistische Ansicht</label>
+                        <p class="text-[10px] text-slate-500">Status, Beschriftungen & Modus-Badge ausblenden</p>
+                    </div>
+                    <input type="checkbox" id="toggle-minimal" class="w-4 h-4 accent-emerald-500 rounded cursor-pointer">
+                </div>
+
+                <!-- Sync Modus Einstellung -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">Empfangsmodus (Server → App)</label>
+                    <div class="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                        <button 
+                            id="mode-realtime" 
+                            type="button" 
+                            class="py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 bg-emerald-600 text-white shadow-md"
+                        >
+                            <i class="fa-solid fa-bolt text-[11px]"></i>
+                            <span>Echtzeit (Push)</span>
+                        </button>
+                        <button 
+                            id="mode-interval" 
+                            type="button" 
+                            class="py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 text-slate-400 hover:text-white"
+                        >
+                            <i class="fa-solid fa-clock text-[11px]"></i>
+                            <span>Intervall (Poll)</span>
+                        </button>
+                    </div>
+
+                    <!-- Intervallauswahl -->
+                    <div id="interval-select-container" class="mt-3 hidden">
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Automatisch laden alle:</label>
+                        <select id="select-interval" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+                            <option value="2000">2 Sekunden</option>
+                            <option value="5000" selected>5 Sekunden</option>
+                            <option value="10000">10 Sekunden</option>
+                            <option value="30000">30 Sekunden</option>
+                        </select>
+                    </div>
+
+                    <p id="mode-description" class="text-[11px] text-slate-500 mt-2">
+                        Änderungen vom Server werden sofort per Websocket empfangen.
+                    </p>
+                </div>
+
+                <!-- API Anmeldedaten -->
+                <div class="border-t border-slate-800 pt-4 space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Project URL</label>
+                        <input 
+                            type="url" 
+                            id="input-supabase-url" 
+                            placeholder="https://xyz.supabase.co" 
+                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                        >
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">API Anon Key</label>
+                        <input 
+                            type="password" 
+                            id="input-supabase-key" 
+                            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6..." 
+                            class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                        >
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-2">
+                <button id="save-settings" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-emerald-600/20">
+                    Speichern & Übernehmen
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anleitung Modal -->
+    <div id="guide-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full max-h-[85vh] flex flex-col shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-3 flex-shrink-0">
+                <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+                    <i class="fa-solid fa-rocket text-blue-500"></i>
+                    <span>Netlify & Supabase Anleitung</span>
+                </h2>
+                <button id="close-guide" class="text-slate-400 hover:text-white p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="overflow-y-auto space-y-6 pr-2 custom-scroll text-sm text-slate-300">
+                <div class="space-y-2">
+                    <h3 class="text-white font-semibold flex items-center space-x-2">
+                        <span class="bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
+                        <span>Supabase Tabelle erstellen</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">
+                        Führe folgendes SQL-Skript im Supabase <strong>SQL Editor</strong> aus:
+                    </p>
+                    <div class="relative bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-300 overflow-x-auto">
+                        <pre id="sql-code">create table counter (
+  id int primary key,
+  value int default 0,
+  text_value text default ''
+);
+
+insert into counter (id, value, text_value) 
+values (1, 0, 'Hallo Welt!') 
+on conflict (id) do nothing;
+
+alter table counter enable row level security;
+
+create policy "Allow public access" on counter for all using (true) with check (true);</pre>
+                        <button id="copy-sql" class="absolute top-2 right-2 bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg text-[11px] transition-all flex items-center space-x-1">
+                            <i class="fa-regular fa-copy"></i>
+                            <span id="copy-text">Kopieren</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="space-y-2 border-t border-slate-800 pt-4">
+                    <h3 class="text-white font-semibold flex items-center space-x-2">
+                        <span class="bg-blue-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
+                        <span>Auf Netlify hochladen</span>
+                    </h3>
+                    <ol class="list-decimal list-inside text-xs text-slate-400 space-y-1.5 pl-1">
+                        <li>Speichere diesen Code als <code class="bg-slate-950 text-slate-200 px-1.5 py-0.5 rounded">index.html</code>.</li>
+                        <li>Gehe zu <a href="https://app.netlify.com" target="_blank" class="text-blue-400 underline">Netlify.com</a>.</li>
+                        <li>Ziehe den Ordner mit der Datei in das Upload-Feld.</li>
+                    </ol>
+                </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800 flex-shrink-0">
+                <button id="btn-guide-ok" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2.5 rounded-xl transition-all text-xs">
+                    Verstanden
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // App-Zustand
+            let count = 0;
+            let textVal = "Hallo Welt!";
+            let userName = "";
+            let displayMode = 'counter'; // 'counter' oder 'text'
+            let syncMode = 'realtime'; // 'realtime' oder 'interval'
+            let isMinimalView = false;
+            let pollIntervalTime = 5000;
+            let pollTimer = null;
+            let supabaseClient = null;
+            let realtimeChannel = null;
+
+            // DOM-Elemente
+            const counterDisplay = document.getElementById('counter-display');
+            const textDisplay = document.getElementById('text-display');
+            const displayLabel = document.getElementById('display-label');
+            const metaHeader = document.getElementById('meta-header');
+            const counterControls = document.getElementById('counter-controls');
+            const textControls = document.getElementById('text-controls');
+            const inputTextVal = document.getElementById('input-text-val');
+            const charCounter = document.getElementById('char-counter');
+            const btnSubmitText = document.getElementById('btn-submit-text');
+
+            const tabCounter = document.getElementById('tab-counter');
+            const tabText = document.getElementById('tab-text');
+
+            const btnPlus = document.getElementById('btn-plus');
+            const btnMinus = document.getElementById('btn-minus');
+            const btnReset = document.getElementById('btn-reset');
+            const resetLabel = document.getElementById('reset-label');
+            const btnRefresh = document.getElementById('btn-refresh');
+
+            const statusDot = document.getElementById('status-dot');
+            const statusText = document.getElementById('status-text');
+            const syncSubtext = document.getElementById('sync-subtext');
+            const badgeMode = document.getElementById('badge-mode');
+
+            const settingsModal = document.getElementById('settings-modal');
+            const btnSettings = document.getElementById('btn-settings');
+            const closeSettings = document.getElementById('close-settings');
+            const saveSettings = document.getElementById('save-settings');
+            const toggleMinimal = document.getElementById('toggle-minimal');
+            const inputUserName = document.getElementById('input-user-name');
+            const inputUrl = document.getElementById('input-supabase-url');
+            const inputKey = document.getElementById('input-supabase-key');
+            
+            const modeRealtimeBtn = document.getElementById('mode-realtime');
+            const modeIntervalBtn = document.getElementById('mode-interval');
+            const modeDescription = document.getElementById('mode-description');
+            const intervalSelectContainer = document.getElementById('interval-select-container');
+            const selectInterval = document.getElementById('select-interval');
+
+            const guideModal = document.getElementById('guide-modal');
+            const btnGuide = document.getElementById('btn-guide');
+            const closeGuide = document.getElementById('close-guide');
+            const btnGuideOk = document.getElementById('btn-guide-ok');
+            const copySqlBtn = document.getElementById('copy-sql');
+            const copyText = document.getElementById('copy-text');
+
+            function initApp() {
+                const storedMode = localStorage.getItem('supabase_sync_mode');
+                if (storedMode === 'interval' || storedMode === 'realtime') {
+                    syncMode = storedMode;
+                }
+
+                const storedInterval = localStorage.getItem('supabase_poll_interval');
+                if (storedInterval) {
+                    pollIntervalTime = parseInt(storedInterval, 10);
+                    selectInterval.value = storedInterval;
+                }
+
+                userName = localStorage.getItem('app_user_name') || "";
+                inputUserName.value = userName;
+
+                isMinimalView = localStorage.getItem('minimal_view') === 'true';
+                toggleMinimal.checked = isMinimalView;
+                applyMinimalView();
+
+                updateSyncModeUI();
+
+                const storedUrl = localStorage.getItem('supabase_url');
+                const storedKey = localStorage.getItem('supabase_key');
+
+                if (storedUrl && storedKey) {
+                    inputUrl.value = storedUrl;
+                    inputKey.value = storedKey;
+                    try {
+                        supabaseClient = window.supabase.createClient(storedUrl, storedKey);
+                        updateStatus('online', 'Supabase Verbunden');
+                        fetchData();
+                        setupSyncStrategy();
+                    } catch (e) {
+                        updateStatus('error', 'Verbindungsfehler');
+                    }
+                } else {
+                    updateStatus('setup', 'Setup erforderlich');
+                    settingsModal.classList.remove('hidden');
+                }
+            }
+
+            function applyMinimalView() {
+                if (isMinimalView) {
+                    metaHeader.classList.add('hidden');
+                    syncSubtext.classList.add('hidden');
+                } else {
+                    metaHeader.classList.remove('hidden');
+                    syncSubtext.classList.remove('hidden');
+                }
+            }
+
+            // Tab-Umschaltung (Zähler vs. Text)
+            function setDisplayMode(mode) {
+                displayMode = mode;
+                if (mode === 'counter') {
+                    tabCounter.className = "py-1.5 rounded-lg transition-all bg-slate-800 text-white flex items-center justify-center space-x-1.5";
+                    tabText.className = "py-1.5 rounded-lg transition-all text-slate-400 hover:text-white flex items-center justify-center space-x-1.5";
+                    
+                    counterDisplay.classList.remove('hidden');
+                    textDisplay.classList.add('hidden');
+                    counterControls.classList.remove('hidden');
+                    textControls.classList.add('hidden');
+                    displayLabel.textContent = "Aktueller Wert";
+                    resetLabel.textContent = "Auf 0 zurücksetzen";
+                } else {
+                    tabText.className = "py-1.5 rounded-lg transition-all bg-slate-800 text-white flex items-center justify-center space-x-1.5";
+                    tabCounter.className = "py-1.5 rounded-lg transition-all text-slate-400 hover:text-white flex items-center justify-center space-x-1.5";
+                    
+                    textDisplay.classList.remove('hidden');
+                    counterDisplay.classList.add('hidden');
+                    textControls.classList.remove('hidden');
+                    counterControls.classList.add('hidden');
+                    displayLabel.textContent = "Aktueller Text";
+                    resetLabel.textContent = "Text leeren";
+                }
+            }
+
+            tabCounter.addEventListener('click', () => setDisplayMode('counter'));
+            tabText.addEventListener('click', () => setDisplayMode('text'));
+
+            // Zeichenzähler für Texteingabe (100 Zeichen)
+            inputTextVal.addEventListener('input', (e) => {
+                charCounter.textContent = `${e.target.value.length}/100`;
+            });
+
+            function setSyncMode(newMode) {
+                syncMode = newMode;
+                localStorage.setItem('supabase_sync_mode', syncMode);
+                updateSyncModeUI();
+                setupSyncStrategy();
+            }
+
+            function updateSyncModeUI() {
+                if (syncMode === 'realtime') {
+                    modeRealtimeBtn.className = "py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 bg-emerald-600 text-white shadow-md";
+                    modeIntervalBtn.className = "py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 text-slate-400 hover:text-white";
+                    modeDescription.textContent = "Änderungen vom Server werden sofort per Websocket empfangen.";
+                    badgeMode.textContent = "Realtime";
+                    badgeMode.className = "px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800";
+                    intervalSelectContainer.classList.add('hidden');
+                } else {
+                    modeIntervalBtn.className = "py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 bg-blue-600 text-white shadow-md";
+                    modeRealtimeBtn.className = "py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 text-slate-400 hover:text-white";
+                    modeDescription.textContent = `Daten werden alle ${pollIntervalTime / 1000} Sekunden vom Server geladen.`;
+                    badgeMode.textContent = `Auto-Fetch (${pollIntervalTime / 1000}s)`;
+                    badgeMode.className = "px-2 py-0.5 text-[10px] font-semibold rounded-full bg-blue-950 text-blue-400 border border-blue-800";
+                    intervalSelectContainer.classList.remove('hidden');
+                }
+            }
+
+            function setupSyncStrategy() {
+                if (pollTimer) {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+                if (realtimeChannel && supabaseClient) {
+                    supabaseClient.removeChannel(realtimeChannel);
+                    realtimeChannel = null;
+                }
+
+                if (!supabaseClient) return;
+
+                if (syncMode === 'realtime') {
+                    setupRealtimeSubscription();
+                } else {
+                    pollTimer = setInterval(() => {
+                        fetchData(true);
+                    }, pollIntervalTime);
+                }
+            }
+
+            function updateStatus(state, text) {
+                statusText.textContent = text;
+                statusDot.className = "w-2.5 h-2.5 rounded-full transition-all ";
+                
+                if (state === 'online') {
+                    statusDot.classList.add('bg-emerald-500');
+                } else if (state === 'syncing') {
+                    statusDot.classList.add('bg-amber-500', 'animate-pulse');
+                } else if (state === 'error') {
+                    statusDot.classList.add('bg-rose-500');
+                } else {
+                    statusDot.classList.add('bg-slate-500');
+                }
+            }
+
+            // Daten abrufen
+            async function fetchData(isBackgroundPoll = false) {
+                if (!supabaseClient) return;
+                
+                if (!isBackgroundPoll) {
+                    syncSubtext.textContent = "Lade Daten von Server...";
+                    updateStatus('syncing', 'Synchronisiere...');
+                }
+
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('counter')
+                        .select('value, text_value')
+                        .eq('id', 1)
+                        .maybeSingle();
+
+                    if (error) throw error;
+
+                    if (data) {
+                        if (data.value !== undefined) count = data.value;
+                        if (data.text_value !== undefined) textVal = data.text_value;
+                        
+                        updateDisplay(true);
+                        updateStatus('online', 'Supabase Verbunden');
+                        syncSubtext.textContent = isBackgroundPoll 
+                            ? `Auto-Fetch aktiv (${new Date().toLocaleTimeString()})`
+                            : "Erfolgreich geladen";
+                    } else {
+                        await syncToSupabase(0, "Hallo Welt!");
+                    }
+                } catch (err) {
+                    console.error("Fehler beim Abrufen:", err);
+                    updateStatus('error', 'Sync-Fehler');
+                    syncSubtext.textContent = "Fehler beim Laden";
+                }
+            }
+
+            // Speichern in Supabase
+            async function syncToSupabase(newVal, newText) {
+                if (!supabaseClient) {
+                    syncSubtext.textContent = "Nur lokal gespeichert (Kein Supabase)";
+                    return;
+                }
+
+                syncSubtext.textContent = "Speichere auf Server...";
+                updateStatus('syncing', 'Speichere...');
+
+                try {
+                    const payload = { id: 1 };
+                    if (newVal !== undefined) payload.value = newVal;
+                    if (newText !== undefined) payload.text_value = newText;
+
+                    const { error } = await supabaseClient
+                        .from('counter')
+                        .upsert(payload);
+
+                    if (error) throw error;
+
+                    updateStatus('online', 'Supabase Verbunden');
+                    syncSubtext.textContent = "Erfolgreich gespeichert";
+                } catch (err) {
+                    console.error("Fehler beim Speichern:", err);
+                    updateStatus('error', 'Sync-Fehler');
+                    syncSubtext.textContent = "Speichern fehlgeschlagen";
+                }
+            }
+
+            // Realtime Abonnieren
+            function setupRealtimeSubscription() {
+                if (!supabaseClient) return;
+
+                realtimeChannel = supabaseClient
+                    .channel('counter-changes')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'counter' }, (payload) => {
+                        if (payload.new) {
+                            if (payload.new.value !== undefined) count = payload.new.value;
+                            if (payload.new.text_value !== undefined) textVal = payload.new.text_value;
+                            updateDisplay(true);
+                            syncSubtext.textContent = "Echtzeit-Update empfangen";
+                        }
+                    })
+                    .subscribe();
+            }
+
+            function updateDisplay(animate = true) {
+                counterDisplay.textContent = count;
+                textDisplay.textContent = textVal || "...";
+                
+                if (animate) {
+                    const activeElem = displayMode === 'counter' ? counterDisplay : textDisplay;
+                    activeElem.classList.add('pop-animation');
+                    setTimeout(() => {
+                        activeElem.classList.remove('pop-animation');
+                    }, 150);
+                }
+            }
+
+            // Zähler-Aktionen
+            btnPlus.addEventListener('click', () => {
+                count += 1;
+                updateDisplay(true);
+                syncToSupabase(count, undefined);
+            });
+
+            btnMinus.addEventListener('click', () => {
+                count -= 1;
+                updateDisplay(true);
+                syncToSupabase(count, undefined);
+            });
+
+            // Text-Aktion
+            btnSubmitText.addEventListener('click', () => {
+                const rawText = inputTextVal.value.trim();
+                // Name vor den Text hängen
+                const fullText = userName ? (userName + rawText) : rawText;
+                textVal = fullText;
+                updateDisplay(true);
+                syncToSupabase(undefined, textVal);
+                inputTextVal.value = "";
+                charCounter.textContent = "0/100";
+            });
+
+            // Reset-Aktion
+            btnReset.addEventListener('click', () => {
+                if (displayMode === 'counter') {
+                    count = 0;
+                    updateDisplay(true);
+                    syncToSupabase(0, undefined);
+                } else {
+                    textVal = "";
+                    updateDisplay(true);
+                    syncToSupabase(undefined, "");
+                }
+            });
+
+            btnRefresh.addEventListener('click', () => fetchData());
+
+            // Modal Controls
+            btnSettings.addEventListener('click', () => settingsModal.classList.remove('hidden'));
+            closeSettings.addEventListener('click', () => settingsModal.classList.add('hidden'));
+
+            modeRealtimeBtn.addEventListener('click', () => setSyncMode('realtime'));
+            modeIntervalBtn.addEventListener('click', () => setSyncMode('interval'));
+
+            selectInterval.addEventListener('change', (e) => {
+                pollIntervalTime = parseInt(e.target.value, 10);
+                localStorage.setItem('supabase_poll_interval', pollIntervalTime);
+                updateSyncModeUI();
+                setupSyncStrategy();
+            });
+
+            btnGuide.addEventListener('click', () => guideModal.classList.remove('hidden'));
+            closeGuide.addEventListener('click', () => guideModal.classList.add('hidden'));
+            btnGuideOk.addEventListener('click', () => guideModal.classList.add('hidden'));
+
+            saveSettings.addEventListener('click', () => {
+                const url = inputUrl.value.trim();
+                const key = inputKey.value.trim();
+
+                userName = inputUserName.value.trim();
+                localStorage.setItem('app_user_name', userName);
+
+                isMinimalView = toggleMinimal.checked;
+                localStorage.setItem('minimal_view', isMinimalView);
+                applyMinimalView();
+
+                if (url && key) {
+                    localStorage.setItem('supabase_url', url);
+                    localStorage.setItem('supabase_key', key);
+                    settingsModal.classList.add('hidden');
+                    initApp();
+                } else {
+                    settingsModal.classList.add('hidden');
+                }
+            });
+
+            // SQL Kopieren Button
+            copySqlBtn.addEventListener('click', async () => {
+                const sqlText = document.getElementById('sql-code').innerText;
+                try {
+                    await navigator.clipboard.writeText(sqlText);
+                    copyText.textContent = "Kopiert!";
+                } catch (err) {
+                    copyText.textContent = "Fehler!";
+                }
+                setTimeout(() => {
+                    copyText.textContent = "Kopieren";
+                }, 2000);
+            });
+
+            // iOS Touch Blockierung
+            let lastTouchEnd = 0;
+            document.addEventListener('touchend', (event) => {
+                const now = (new Date()).getTime();
+                if (now - lastTouchEnd <= 300) {
+                    event.preventDefault();
+                }
+                lastTouchEnd = now;
+            }, false);
+
+            initApp();
+        });
+    </script>
+</body>
+</html>
